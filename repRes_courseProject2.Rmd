@@ -1,0 +1,285 @@
+---
+title: "An overview of the effects of severe weather events on public health and the economy."
+author: "Imanol Rivero"
+date: "`r Sys.Date()`"
+output: 
+    html_document:
+        keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+**This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage. The objective of this analysis is to successfully answer two questions (described below) using the data.**
+
+* [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+* National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+## 2. Goal Description
+
+The goal of this assignment is to explore the NOAA Storm Database and answer some basic questions about severe weather events.
+
+Questions:
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+    
+2. Across the United States, which types of events have the greatest economic consequences?
+
+## 3. Data Processing
+
+```{r, results='hide'}
+# Loading Libraries
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+### 3.1 Data Loading
+
+Downloading the raw data file, and loading it to a dataframe
+
+```{r, results='hide'}
+# Getting and loading the data
+if(!file.exists("./data")){dir.create("./data")}
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+if(!file.exists("./data/stormdata.csv.bz2")){download.file(url, "./data/stormdata.csv.bz2")}
+stormData <- as_tibble(read.csv("./data/stormdata.csv.bz2"))
+```
+
+### 3.2 Exploring the dataframe
+
+```{r}
+colnames(stormData)
+```
+```{r}
+str(stormData)
+```
+### 3.3 Subsetting dataframe
+
+It is not necessary to use all the variables to perform this analysis. So I will make a subset of the dataframe.
+
+```{r}
+stormData <- stormData %>% select(EVTYPE, # Type of event
+                                  FATALITIES,
+                                  INJURIES,
+                                  PROPDMG, # Property damage
+                                  PROPDMGEXP, # Exponent associate with PROPDMG
+                                  CROPDMG, # Crop damage
+                                  CROPDMGEXP) # Exponent associate with CROPDMG
+```
+
+### 3.4 Creating and transforming variables
+
+Analyzing the damage cost of the events, it's necessary to convert the exponent columns to actual exponents and convert the columns of PROPDMG and CROPDMG to the complete decimal value.
+
+```{r}
+unique(stormData$PROPDMGEXP)
+unique(stormData$CROPDMGEXP)
+```
+Here we can see the unique values for the character expression of the exponents associate with the damage cost.
+
+---
+
+To reassign the correct values, I will first create two new dataframes, relating the expressions in characters that we had with exponents in scientific notation. Then by doing a join between both sets, we will have the column with scientific notation in the original dataframe.
+
+```{r}
+# Creating two dataframes to join
+propDF <- data.frame(PROPDMGEXP = c("\"\"",
+                                        "-",
+                                        "+",
+                                        "0",
+                                        "1",
+                                        "2",
+                                        "3",
+                                        "4",
+                                        "5",
+                                        "6",
+                                        "7",
+                                        "8",
+                                        "9",
+                                        "H",
+                                        "K",
+                                        "M",
+                                        "B"),
+                       prop_dec_exp = c(10^0,
+                                        10^0, 
+                                        10^0,
+                                        10^0,
+                                        10^1,
+                                        10^2,
+                                        10^3,
+                                        10^4,
+                                        10^5,
+                                        10^6,
+                                        10^7,
+                                        10^8,
+                                        10^9,
+                                        10^2,
+                                        10^3,
+                                        10^6,
+                                        10^9))
+
+cropDF <- data.frame(CROPDMGEXP = c("\"\"",
+                                        "?",
+                                        "0",
+                                        "K",
+                                        "M",
+                                        "B"),
+                       crop_dec_exp = c(10^0,
+                                        10^0,
+                                        10^0,
+                                        10^3,
+                                        10^6,
+                                        10^9))
+
+stormData <- full_join(stormData, propDF, by="PROPDMGEXP")
+stormData <- full_join(stormData, cropDF, by="CROPDMGEXP")
+stormData <- drop_na(stormData, EVTYPE) # Dropping NAs generated from join
+```
+
+Using the columns with scientific notation, I will multiply the values of PROPDMG and CROPDMG by their exponent, respectively, and reassign the full decimal value to them.
+
+```{r}
+# Reassigning the complete decimal value to PROPDMG and CROPDMG
+stormData <- stormData %>% mutate(PROPDMG = PROPDMG * prop_dec_exp,
+                                      CROPDMG = CROPDMG * crop_dec_exp)
+
+
+## Converting NAs to zero, and finally re-selecting the important columns
+stormData <- stormData %>% mutate(PROPDMG = case_when(is.na(PROPDMG) ~ 0,
+                                                          TRUE ~ PROPDMG
+                                                          ),
+                                      CROPDMG = case_when(is.na(CROPDMG) ~ 0,
+                                                          TRUE ~ CROPDMG
+                                                          )
+                                      ) %>% 
+                           select(EVTYPE, PROPDMG, CROPDMG, INJURIES, FATALITIES)
+
+```
+
+#### Calculating total damage cost per event
+
+```{r}
+stormData <- stormData %>% mutate(totalDMG = PROPDMG + CROPDMG)
+stormData
+```
+
+---
+
+Additionally, there were events that did not result in any deaths or injuries. So, these will be removed into a new subset.
+
+```{r}
+fat_inj <- filter(stormData, !(FATALITIES == 0 & INJURIES == 0))
+```
+
+#### Calculating total fatalities and injuries per event 
+
+```{r}
+fat_inj <- fat_inj %>% mutate(totals = INJURIES + FATALITIES)
+fat_inj
+```
+
+## 4. Results
+
+### 4.1 Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Aggregating each fatality, injury and total by EVTYPE, to have unique values of event types. And rejoining them into a new dataframe.
+
+```{r}
+# Aggregating 
+tmp1 <- aggregate(INJURIES ~ EVTYPE, fat_inj, sum) # Sum of injuries caused by the same type of event
+tmp2 <- aggregate(FATALITIES ~ EVTYPE, fat_inj, sum) # Sum of fatalities caused by the same type of event
+tmp3 <- aggregate(totals ~ EVTYPE, fat_inj, sum) # # Sum of total injuries + fatalities caused by the same type of event
+
+# Performing the join using the temporary tables to create the final dataframe
+agg_data <- full_join(tmp1, tmp2, by = "EVTYPE")
+agg_data <- full_join(agg_data, tmp3, by = "EVTYPE")
+as_tibble(agg_data)
+```
+
+Rearrange in a decreasing order, and extract the first 10 values, which would be the ones with the highest values.
+
+```{r}
+agg_data <- arrange(agg_data, desc(totals)) # reordering
+agg_data <- agg_data[1:10,] # Taking only the top 10
+as_tibble(agg_data)
+```
+
+Finally, I will make a reshape of the data by making a pivot and reorganizing the values into a new layout.
+
+```{r}
+agg_data <- pivot_longer(agg_data, cols = 2:4, names_to = "Condition", 
+                     values_to = "Value")
+agg_data
+```
+
+Creating the bar plot to answer the question.
+
+```{r}
+ggplot(agg_data, aes(x = reorder(EVTYPE, -Value), y = Value)) +
+    geom_bar(stat="identity", aes(fill = Condition), position="dodge") +
+    ylab("Frequency Count") +
+    xlab("Event Type") +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    ggtitle("Top 10 Most harmful events to population in the US") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+As we can see in the graph generated, the events that caused the most human suffering are tornadoes, followed far behind by all the others starting with excessive heat.
+
+---
+
+### 4.2 Across the United States, which types of events have the greatest economic consequences?
+
+Aggregating each damage type, including the total sum of both by EVTYPE, to have unique values of event types. And rejoining them into a new dataframe.
+
+```{r}
+economCons <- select(stormData, EVTYPE, PROPDMG, CROPDMG, totalDMG)
+
+tmp1 <- aggregate(PROPDMG ~ EVTYPE, economCons, sum) # Sum of property damage caused by the same type of event
+tmp2 <- aggregate(CROPDMG ~ EVTYPE, economCons, sum) # Sum of crop damage caused by the same type of event
+tmp3 <- aggregate(totalDMG ~ EVTYPE, economCons, sum) # # Sum of total prop + crop caused by the same type of event
+
+economCons <- full_join(tmp1, tmp2, by = "EVTYPE")
+economCons <- full_join(economCons, tmp3, by = "EVTYPE")
+
+as_tibble(economCons)
+```
+
+Rearrange in a decreasing order, and extract the first 10 values, which would be the ones with the highest values.
+
+```{r}
+economCons <- arrange(economCons, desc(totalDMG)) # reordering
+economCons <- economCons[1:10,] # Taking the top 10
+as_tibble(economCons)
+```
+
+Finally, I will make a reshape of the data by making a pivot and reorganizing the values into a new layout.
+
+```{r}
+economCons <- pivot_longer(economCons, cols = 2:4, names_to = "dmgType",
+                           values_to = "costValue")
+as_tibble(economCons)
+```
+
+Creating the bar plot to answer the question.
+
+```{r}
+ggplot(economCons, aes(x = reorder(EVTYPE, -costValue), y = costValue)) +
+    geom_bar(stat="identity", aes(fill = dmgType), position="dodge") +
+    ylab("Cost in dollars") +
+    xlab("Event Type") +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    ggtitle("Top 10 Most expensive events across the US") + theme(plot.title = element_text(hjust = 0.5))
+```
+As we can see in the graph generated, the costliest events have been floods, followed by hurricanes and tornadoes.
+
+---
+## 5. Conclusion 
+From the analysis of this dataset, we can simply conclude that those ecological disasters that cause the most damage to people are not always the costliest, but the emotional costs they cause should also be considered.
