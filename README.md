@@ -20,6 +20,6 @@ Some of the key findings are answered with the following graphs.
 
 ## About the files and publication on rpubs
 
-This repository includes the md file (repRes_courseProject2.md) where the complete process of analysis, treatment and outcome description can be visualized. It is also possible to view this document on the rpubs platform, at this link.
+This repository includes the md file (repRes_courseProject2.md) where the complete process of analysis, treatment and outcome description can be visualized. It is also possible to view this document on the rpubs platform, at this [link](https://rpubs.com/imarivero/932356).
 
 Some of the key results 
